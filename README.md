@@ -7,12 +7,12 @@
 | [train_distill_mi_ma_feature_ablation.py](train_distill_mi_ma_feature_ablation.py) | （feature-mean消融）`level_token` 与 `text_mean` 特征载体消融；分类仍使用层级 token |
 | [train_distill_mi_ma_fullatt.py](train_distill_mi_ma_fullatt.py) | 单个 Transformer 层的完整有效 token 对 attention 蒸馏 |
 | [train_distill_mi_ma_fullatt_ltot.py](train_distill_mi_ma_fullatt_ltot.py) | （level-token的fullatt蒸馏）`--full_attention_scope full/level_to_text`，默认 `full` |
-| [train_distill_mi_ma_fullatt_scope.py](train_distill_mi_ma_fullatt_scope.py) | `--full_attention_scope full/text_to_text`，默认 `full` |
-| [train_distill_mi_ma_multilayer.py](train_distill_mi_ma_multilayer.py) | `legacy/bank` 两种模式，支持单层、平均、多层一对一匹配 |
-| [train_distill_mi_ma_multilayer_sampling.py](train_distill_mi_ma_multilayer_sampling.py) | 在多层蒸馏上增加固定、均匀及逐 epoch 随机选层 |
+| [train_distill_mi_ma_fullatt_scope.py](train_distill_mi_ma_fullatt_scope.py) | （当时主要为了做正文 token → 正文 token 的全量注意力蒸馏）`--full_attention_scope full/text_to_text`，默认 `full` |
 | [train_distill_mi_ma_text_topk.py](train_distill_mi_ma_text_topk.py) | （这个是fp16保存了完整的att，然后选择的top-k，之后的top-k的选择可能会有点差别）增加 `matched_text_topk` 对照：使用末尾文本查询，教师 Top-K 加 `other` 桶 |
 | [train_distill_mi_ma_text_topk1.py](train_distill_mi_ma_text_topk1.py) | 同类对照的另一实现：FP32 缓存/选取 → FP16 教师概率桶 → FP32 KL；保留为独立分支 |
 | [teacher_bank_ops.py](teacher_bank_ops.py) | 多层分支共用的选层、配对与特征/attention 融合工具，不是独立训练入口 |
+| [train_distill_mi_ma_multilayer.py](train_distill_mi_ma_multilayer.py) | `legacy/bank` 两种模式，支持单层、平均、多层一对一匹配 |
+| [train_distill_mi_ma_multilayer_sampling.py](train_distill_mi_ma_multilayer_sampling.py) | 在多层蒸馏上增加固定、均匀及逐 epoch 随机选层 |
 
 # AGT Plus：层级多标签文本分类与离线知识蒸馏
 
