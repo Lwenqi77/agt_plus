@@ -14,6 +14,15 @@
 | [train_distill_mi_ma_multilayer.py](train_distill_mi_ma_multilayer.py) | `legacy/bank` 两种模式，支持单层、平均、多层一对一匹配 |
 | [train_distill_mi_ma_multilayer_sampling.py](train_distill_mi_ma_multilayer_sampling.py) | 在多层蒸馏上增加固定、均匀及逐 epoch 随机选层 |
 
+# 关于训练与评估
+
+| 文件 | 用途 |
+| --- | --- |
+| [train_baseline.py](train_baseline.py) | 固定长度 padding 的分类基线，同时定义共用的数据集、模型与指标工具 |
+| [train_baseline_collator.py](train_baseline_collator.py) | （我的教师学生主要用的这个教你）带独立 collator 的分类基线；`--padding_mode fixed/dynamic`，默认 `dynamic` |
+| [eval_localconcat.py](eval_localconcat.py) | （评估脚本）对兼容的 LoRA 分类 checkpoint 进行独立评估，基于 `train_baseline` 的模型结构 |
+| [train_generative_sft.py](train_generative_sft.py) | （正在跑的SFT脚本）生成式 HTC LoRA SFT，复用 collator 基线的数据/指标约定，生成按层组织的标签 JSON |
+
 # AGT Plus：层级多标签文本分类与离线知识蒸馏
 
 本项目使用 Qwen、Llama 等 decoder 模型进行层级多标签文本分类（HTC）。分类分支在文本后追加层级 token，训练局部分类头与全局分类头；离线蒸馏分支提取教师的 logits、特征和 attention，供学生训练使用。另提供生成式 LoRA SFT，作为不同建模方式的对照。
