@@ -158,13 +158,18 @@ STUDENT_RUN=/data1/lwq/agt_plus/output_distill/wos_student_example
 ### 4.2 教师训练
 
 ```bash
-python train_baseline.py \
-  --gpu 0 --dataset wos --model_key qwen8b --data_dir "$DATA" \
-  --output_dir "$TEACHER_RUN" \
-  --global_loss_weight 1 --local_loss_weight 1 \
-  --early_stop_target global \
-  --train_batch 2 --eval_batch 2 --grad_acc 8 \
-  --epochs 15 --lr 8e-5 --seed 42 --no_swanlab
+python train_baseline_collator.py \
+--dataset wos \
+--model_key qwen8b \
+--lr 1e-4 \
+--early_stop_target global  \
+--output_dir "$TEACHER_CKPT" \
+--global_loss_weight 1  \
+--local_loss_weight 0  \
+--train_batch 1   \
+--eval_batch 1  \
+--grad_acc 32  \
+--epochs 7
 ```
 
 训练入口的 `--gpu` 默认值是 `1`，请显式选择分配给你的 GPU。需要动态 padding 时，可将入口改为 `train_baseline_collator.py`，增加 `--padding_mode dynamic`。教师 checkpoint 应保留 adapter、tokenizer、`classifier_head.pt` 与 `teacher_config.json`，以及其引用的基础模型。
@@ -173,10 +178,9 @@ python train_baseline.py \
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python extract_teacher.py \
-  --dataset wos --checkpoint_dir "$TEACHER_CKPT" --data_dir "$DATA" \
-  --output_dir "$KNOWLEDGE" \
-  --knowledge_types logits,features,attention \
-  --batch_size 1 --shard_size 2048 --attention_topk 32
+  --dataset wos \
+  --checkpoint_dir "$TEACHER_CKPT"\
+  --knowledge_types logits,features,att
 ```
 
 原始单层库保存 manifest 与分片，支持相同配置下续提；用于训练前应达到 `status: complete`。多 GPU 可使用 `torchrun --nproc_per_node=N`。`--overwrite_shards` 会重写分片，普通续提无需开启。
@@ -184,17 +188,21 @@ CUDA_VISIBLE_DEVICES=0 python extract_teacher.py \
 ### 4.4 学生蒸馏
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python train_distill_mi_ma.py \
-  --dataset wos --model_key qwen0.6b --data_dir "$DATA" \
-  --knowledge_dir "$KNOWLEDGE" --output_dir "$STUDENT_RUN" \
-  --tuning_mode lora \
-  --global_supervised_bce_weight 1 --local_supervised_bce_weight 0 \
-  --global_logit_kd_weight 1 --local_logit_kd_weight 0 \
-  --feature_kd_weight 0.1 --attention_kd_weight 1 \
-  --attention_mass_kd_weight 0 --temperature 2 \
-  --train_batch 2 --eval_batch 2 --grad_acc 8 \
-  --epochs 10 --lr 8e-5 --early_stopping_target global_macro \
-  --seed 42 --no_swanlab
+python train_distill_mi_ma.py \
+  --dataset wos \
+  --knowledge_dir "$KNOWLEDGE" \
+  --model_key qwen0.6b \
+  --output_dir "$STUDENT_RUN" \
+  --global_supervised_bce_weight 1 \
+  --local_supervised_bce_weight 0 \
+  --global_logit_kd_weight 1 \
+  --local_logit_kd_weight 0 \
+  --feature_kd_weight 0.02 \
+  --attention_kd_weight 0.25 \
+  --attention_mass_kd_weight 0 \
+  --early_stopping_target global_macro \
+  --epochs 10 \
+  --lr 2e-4
 ```
 
 主要目标：监督 BCE、带温度的教师 logit 蒸馏、特征 MSE/cosine，以及教师 Top-K attention 与剩余概率桶的 KL。对应权重设为 0 可关闭该项；启用的知识类型必须存在。不同 attention 范围的损失不能仅凭相同权重视为强度相等。
@@ -204,7 +212,7 @@ CUDA_VISIBLE_DEVICES=0 python train_distill_mi_ma.py \
 ```bash
 CUDA_VISIBLE_DEVICES=0 python eval_localconcat.py \
   --checkpoint_dir "$STUDENT_RUN/best_global_macro" \
-  --dataset wos --data_dir "$DATA" --split test --eval_batch 4 \
+  --dataset wos --data_dir "$DATA" --split test --eval_batch 16 \
   --output_json "$STUDENT_RUN/test_metrics.json"
 ```
 
@@ -236,15 +244,30 @@ Token 检查默认使用 manifest 中教师 checkpoint 的 tokenizer，可通过
 ### 5.2 紧凑层级 token→文本缓存
 
 ```bash
-COMPACT_BANK="$TEACHER_CKPT/teacher_level_text_fp32"
 python convert_full_attention_to_level_text.py \
-  --full_attention_dir "$FULL_BANK" --output_dir "$COMPACT_BANK" --layer -1
-
-CUDA_VISIBLE_DEVICES=0 python train_distill_mi_ma_cached_topk.py \
-  --dataset wos --model_key qwen0.6b --data_dir "$DATA" \
-  --knowledge_dir "$KNOWLEDGE" --attention_cache_dir "$COMPACT_BANK" \
-  --attention_topk 32 --attention_kd_weight 1 \
-  --output_dir ./output_distill/cached_topk_example --no_swanlab
+  --full_attention_dir /data1/lwq/agt_plus/output_plus/wos_qwen8b_local0_global1_collator-epoch7/best_global_macro/teacher_knowledge_full_attention_last1_float32 \
+  --output_dir /data1/lwq/agt_plus/output_plus/wos_qwen8b_local0_global1_collator-epoch7/best_global_macro/teacher_knowledge_level_text_last1_float32 \
+  --layer -1
+python train_distill_mi_ma_cached_topk.py \
+  --dataset wos \
+  --knowledge_dir "$KNOWLEDGE" \
+  --attention_cache_dir "$COMPACT_BANK" \
+  --attention_topk 32 \
+  --model_key qwen0.6b \
+  --output_dir ./output_distill/cached_topk_example \
+  --global_supervised_bce_weight 1 \
+  --local_supervised_bce_weight 0 \
+  --global_logit_kd_weight 1 \
+  --local_logit_kd_weight 0 \
+  --feature_kd_weight 0.1 \
+  --attention_kd_weight 2 \
+  --attention_mass_kd_weight 0 \
+  --early_stopping_target global_macro \
+  --epochs 10 \
+  --lr 2e-4 \
+  --train_batch 4 \
+  --eval_batch 4 \
+  --grad_acc 8
 ```
 
 转换器要求 FP32 full-attention 源库，输出到新目录。紧凑缓存保留层级 token 查询到文本的原始概率；训练时再进行 Top-K 选择。`--attention_topk all` 使用全部文本键。原始 `--knowledge_dir` 仍负责样本对齐与其他知识类型。
@@ -298,11 +321,23 @@ CUDA_VISIBLE_DEVICES=0 python train_distill_mi_ma_feature_ablation.py \
 ## 7. 生成式 SFT
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python train_generative_sft.py \
-  --dataset bgc --model_key qwen0.6b \
-  --data_dir /data1/lwq/agt_plus/data/bgc \
-  --output_dir ./output_sft/bgc_example \
-  --max_new_tokens 512 --do_test --no_swanlab
+python train_generative_sft.py \
+  --dataset wos \
+  --model_key qwen0.6b \
+  --output_dir /data1/lwq/agt_plus/output_sft/wos_Qwen3-0.6B-generative-seed42 \
+  --max_length 2048 \
+  --truncate_mode head \
+  --max_new_tokens 512 \
+  --epochs 10 \
+  --lr 2e-4 \
+  --train_batch 8 \
+  --eval_batch 8 \
+  --grad_acc 4 \
+  --eval_steps 200 \
+  --save_steps 200 \
+  --early_stopping_patience 5 \
+  --seed 42 \
+  --do_test
 ```
 
 生成式分支不使用分类头、附加层级 token 或教师知识库，使用答案 token 的交叉熵训练。输出格式是按层组织的标签 JSON 数组；基于验证集 Macro-F1 选模型，`--do_test` 在所选模型上执行测试。
